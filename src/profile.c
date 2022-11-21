@@ -964,8 +964,6 @@ profile_sharer_destroy(profile_chain_t *prch)
       tvh_mutex_lock(&prsh->prsh_queue_mutex);
       prsh->prsh_queue_run = 0;
       tvh_cond_signal(&prsh->prsh_queue_cond, 0);
-	    prch->prch_sharer = NULL;
-      prch->prch_post_share = NULL;
       tvh_mutex_unlock(&prsh->prsh_queue_mutex);
       pthread_join(prsh->prsh_queue_thread, NULL);
       while ((psm = TAILQ_FIRST(&prsh->prsh_queue)) != NULL) {
@@ -983,6 +981,8 @@ profile_sharer_destroy(profile_chain_t *prch)
     if (prsh->prsh_start_msg)
       streaming_start_unref(prsh->prsh_start_msg);
     free(prsh);
+    prch->prch_sharer = NULL;
+    prch->prch_post_share = NULL;
   } else {
     if (prsh->prsh_queue_run) {
       tvh_mutex_lock(&prsh->prsh_queue_mutex);
@@ -997,19 +997,13 @@ profile_sharer_destroy(profile_chain_t *prch)
         TAILQ_REMOVE(&prsh->prsh_queue, psm, psm_link);
         free(psm);
       }
-      prch->prch_sharer = NULL;
-      prch->prch_post_share = NULL;
-      if (prsh->prsh_master == prch)
-        prsh->prsh_master = NULL;
+    }
+    prch->prch_sharer = NULL;
+    prch->prch_post_share = NULL;
+    if (prsh->prsh_master == prch)
+      prsh->prsh_master = NULL;
+    if (prsh->prsh_queue_run)
       tvh_mutex_unlock(&prsh->prsh_queue_mutex);
-    } else {
-      tvh_mutex_lock(&prsh->prsh_queue_mutex);
-      prch->prch_sharer = NULL;
-      prch->prch_post_share = NULL;
-      if (prsh->prsh_master == prch)
-        prsh->prsh_master = NULL;
-      tvh_mutex_unlock(&prsh->prsh_queue_mutex);
-	  } 
   }
 }
 
