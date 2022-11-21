@@ -79,15 +79,16 @@ lav_muxer_add_stream(lav_muxer_t *lm,
 		     const streaming_start_component_t *ssc)
 {
   AVStream *st;
-  AVCodecContext *c;
+  AVCodecContext codec_ctx;
+  AVCodecParameters *cp = 0;
 
   st = avformat_new_stream(lm->lm_oc, NULL);
   if (!st)
     return -1;
 
+  cp = st->codecpar;
   st->id = ssc->es_index;
-  c = st->codec;
-  c->codec_id = streaming_component_type2codec_id(ssc->es_type);
+  codec_ctx.codec_id = streaming_component_type2codec_id(ssc->es_type);
 
   switch(lm->m_config.m_type) {
   case MC_MATROSKA:
@@ -98,7 +99,7 @@ lav_muxer_add_stream(lav_muxer_t *lm,
     break;
 
   case MC_MPEGPS:
-    c->rc_buffer_size = 224*1024*8;
+    codec_ctx.rc_buffer_size = 224*1024*8;
     //Fall-through
   case MC_MPEGTS:
     st->time_base.num = 90000;
@@ -121,61 +122,68 @@ lav_muxer_add_stream(lav_muxer_t *lm,
           isom_write_hvcc(&hdr, pktbuf_ptr(ssc->ssc_gh),
                           pktbuf_len(ssc->ssc_gh));
       }
-      c->extradata_size = hdr.sb_ptr;
-      c->extradata = av_malloc(hdr.sb_ptr);
-      memcpy(c->extradata, hdr.sb_data, hdr.sb_ptr);
+      codec_ctx.extradata_size = hdr.sb_ptr;
+      codec_ctx.extradata = av_malloc(hdr.sb_ptr);
+      memcpy(codec_ctx.extradata, hdr.sb_data, hdr.sb_ptr);
       sbuf_free(&hdr);
     } else {
-      c->extradata_size = pktbuf_len(ssc->ssc_gh);
-      c->extradata = av_malloc(c->extradata_size);
-      memcpy(c->extradata, pktbuf_ptr(ssc->ssc_gh),
+      codec_ctx.extradata_size = pktbuf_len(ssc->ssc_gh);
+      codec_ctx.extradata = av_malloc(codec_ctx.extradata_size);
+      memcpy(codec_ctx.extradata, pktbuf_ptr(ssc->ssc_gh),
              pktbuf_len(ssc->ssc_gh));
     }
   }
 
   if(SCT_ISAUDIO(ssc->es_type)) {
-    c->codec_type    = AVMEDIA_TYPE_AUDIO;
-    c->sample_fmt    = AV_SAMPLE_FMT_S16;
+    codec_ctx.codec_type    = AVMEDIA_TYPE_AUDIO;
+    codec_ctx.sample_fmt    = AV_SAMPLE_FMT_S16;
 
-    c->sample_rate   = sri_to_rate(ssc->es_sri);
-    c->channels      = ssc->es_channels;
+    codec_ctx.sample_rate   = sri_to_rate(ssc->es_sri);
+    codec_ctx.channels      = ssc->es_channels;
 
 #if 0
-    c->time_base.num = 1;
-    c->time_base.den = c->sample_rate;
+    codec_ctx.time_base.num = 1;
+    codec_ctx.time_base.den = codec_ctx.sample_rate;
 #else
-    c->time_base     = st->time_base;
+    codec_ctx.time_base     = st->time_base;
 #endif
 
     av_dict_set(&st->metadata, "language", ssc->es_lang, 0);
 
   } else if(SCT_ISVIDEO(ssc->es_type)) {
-    c->codec_type = AVMEDIA_TYPE_VIDEO;
-    c->width      = ssc->es_width;
-    c->height     = ssc->es_height;
+    codec_ctx.codec_type = AVMEDIA_TYPE_VIDEO;
+    codec_ctx.width      = ssc->es_width;
+    codec_ctx.height     = ssc->es_height;
 
-    c->time_base.num = 1;
-    c->time_base.den = 25;
+    codec_ctx.time_base.num = 1;
+    codec_ctx.time_base.den = 25;
 
-    c->sample_aspect_ratio.num = ssc->es_aspect_num;
-    c->sample_aspect_ratio.den = ssc->es_aspect_den;
+    codec_ctx.sample_aspect_ratio.num = ssc->es_aspect_num;
+    codec_ctx.sample_aspect_ratio.den = ssc->es_aspect_den;
 
     if (lm->m_config.m_type == MC_AVMP4) {
       /* this is a whole hell */
-      AVRational ratio = { c->height, c->width };
-      c->sample_aspect_ratio = av_mul_q(c->sample_aspect_ratio, ratio);
+      AVRational ratio = { codec_ctx.height, codec_ctx.width };
+      codec_ctx.sample_aspect_ratio = av_mul_q(codec_ctx.sample_aspect_ratio, ratio);
     }
 
-    st->sample_aspect_ratio.num = c->sample_aspect_ratio.num;
-    st->sample_aspect_ratio.den = c->sample_aspect_ratio.den;
+    st->sample_aspect_ratio.num = codec_ctx.sample_aspect_ratio.num;
+    st->sample_aspect_ratio.den = codec_ctx.sample_aspect_ratio.den;
 
   } else if(SCT_ISSUBTITLE(ssc->es_type)) {
-    c->codec_type = AVMEDIA_TYPE_SUBTITLE;
+    codec_ctx.codec_type = AVMEDIA_TYPE_SUBTITLE;
     av_dict_set(&st->metadata, "language", ssc->es_lang, 0);
   }
 
-  if(lm->lm_oc->oformat->flags & AVFMT_GLOBALHEADER)
-    c->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
+  if(lm->lm_oc->oformat->flags & AVFMT_GLOBALHEADER) {
+#ifdef AV_CODEC_FLAG_GLOBAL_HEADER 
+        codec_ctx.flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
+#else
+        codec_ctx.flags |= CODEC_FLAG_GLOBAL_HEADER;
+#endif
+    }
+
+  avcodec_parameters_from_context(cp, &codec_ctx);
 
   return 0;
 }
@@ -464,13 +472,13 @@ lav_muxer_write_pkt(muxer_t *m, streaming_message_type_t smt, void *data)
 
     tofree = NULL;
     av_init_packet(&packet);
-    codec_id = st->codec->codec_id;
+    codec_id = st->codecpar->codec_id;
 
     if((lm->lm_h264_filter && codec_id == AV_CODEC_ID_H264) ||
        (lm->lm_hevc_filter && codec_id == AV_CODEC_ID_HEVC)) {
       pkt = avc_convert_pkt(opkt = pkt);
       pkt_ref_dec(opkt);
-      if(av_bitstream_filter_filter(st->codec->codec_id == AV_CODEC_ID_H264 ?
+      if(av_bitstream_filter_filter(st->codecpar->codec_id == AV_CODEC_ID_H264 ?
                                       lm->lm_h264_filter : lm->lm_hevc_filter,
 				    st->codec, 
 				    NULL, 
