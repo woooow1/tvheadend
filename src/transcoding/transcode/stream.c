@@ -87,7 +87,7 @@ tvh_stream_setup(TVHStream *self, TVHCodecProfile *profile, tvh_ssc_t *ssc)
       }
     }
 #endif
-#if ENABLE_VAAPI
+#if ENABLE_HWACCELS
     if (idnode_is_instance(&profile->idnode,
                            (idclass_t *)&codec_profile_video_class)) {
       if (tvh_codec_profile_video_get_hwaccel(profile) > 0) {
