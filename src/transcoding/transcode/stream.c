@@ -87,18 +87,6 @@ tvh_stream_setup(TVHStream *self, TVHCodecProfile *profile, tvh_ssc_t *ssc)
       }
     }
 #endif
-#if ENABLE_HWACCELS
-    if (idnode_is_instance(&profile->idnode,
-                           (idclass_t *)&codec_profile_video_class)) {
-      if (tvh_codec_profile_video_get_hwaccel(profile) > 0) {
-        if (icodec_id == AV_CODEC_ID_H264) {
-            icodec = avcodec_find_decoder_by_name("h264_vaapi");
-        } else if (icodec_id == AV_CODEC_ID_HEVC) {
-            icodec = avcodec_find_decoder_by_name("hevc_vaapi");
-        }
-      }
-    }
-#endif
     if (!icodec && !(icodec = avcodec_find_decoder(icodec_id))) {
         tvh_stream_log(self, LOG_ERR, "failed to find decoder for '%s'",
                        streaming_component_type2txt(ssc->es_type));
