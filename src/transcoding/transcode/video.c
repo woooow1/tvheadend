@@ -258,14 +258,17 @@ tvh_video_context_open_filters(TVHContext *self, AVDictionary **opts)
     // source args
     memset(source_args, 0, sizeof(source_args));
     if (str_snprintf(source_args, sizeof(source_args),
-            "video_size=%dx%d:pix_fmt=%s:time_base=%d/%d:pixel_aspect=%d/%d",
+            "video_size=%dx%d:pix_fmt=%s:time_base=%d/%d:pixel_aspect=%d/%d:"
+            "colorspace=%d:range=%d",
             self->iavctx->width,
             self->iavctx->height,
             av_get_pix_fmt_name(self->iavctx->pix_fmt),
             self->iavctx->time_base.num,
             self->iavctx->time_base.den,
             self->iavctx->sample_aspect_ratio.num,
-            self->iavctx->sample_aspect_ratio.den)) {
+            self->iavctx->sample_aspect_ratio.den,
+            self->iavctx->colorspace,
+            self->iavctx->color_range)) {
         return -1;
     }
 
