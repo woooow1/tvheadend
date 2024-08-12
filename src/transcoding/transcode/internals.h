@@ -32,6 +32,7 @@
 #include <libavfilter/buffersrc.h>
 #include <libavfilter/buffersink.h>
 #include <libavutil/pixdesc.h>
+#include "libavutil/timestamp.h"
 
 
 #define tvh_st_t streaming_target_t
