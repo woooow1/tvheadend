@@ -51,7 +51,7 @@
 
 static void *htsp_server, *htsp_server_2;
 
-#define HTSP_PROTO_VERSION 40
+#define HTSP_PROTO_VERSION 42
 
 #define HTSP_ASYNC_OFF  0x00
 #define HTSP_ASYNC_ON   0x01
@@ -869,6 +869,11 @@ htsp_build_channel(channel_t *ch, const char *method, htsp_connection_t *htsp)
   htsmsg_t *services = htsmsg_create_list();
 
   htsmsg_add_u32(out, "channelId", channel_get_id(ch));
+
+  if (htsp->htsp_version > 40){
+    htsmsg_add_str(out, "channelIdStr", idnode_uuid_as_str(&ch->ch_id, buf));
+  }
+
   htsmsg_add_u32(out, "channelNumber", channel_get_major(chnum));
   if (channel_get_minor(chnum))
     htsmsg_add_u32(out, "channelNumberMinor", channel_get_minor(chnum));
@@ -934,6 +939,11 @@ htsp_build_tag(htsp_connection_t *htsp, channel_tag_t *ct, const char *method, i
   htsmsg_t *members = include_channels ? htsmsg_create_list() : NULL;
 
   htsmsg_add_u32(out, "tagId", htsp_channel_tag_get_identifier(ct));
+
+  if (htsp->htsp_version > 40){
+    htsmsg_add_str(out, "tagIdStr", idnode_uuid_as_str(&ct->ct_id, buf));
+  }
+
   htsmsg_add_u32(out, "tagIndex", ct->ct_index);
 
   htsmsg_add_str(out, "tagName", ct->ct_name);
@@ -969,6 +979,10 @@ htsp_build_dvrentry(htsp_connection_t *htsp, dvr_entry_t *de, const char *method
   const char *str;
 
   htsmsg_add_u32(out, "id", idnode_get_short_uuid(&de->de_id));
+
+  if (htsp->htsp_version > 40){
+    htsmsg_add_str(out, "idStr", idnode_uuid_as_str(&de->de_id, ubuf));
+  }
 
   if (!statsonly) {
     htsmsg_add_u32(out, "enabled", de->de_enabled >= 1 ? 1 : 0);
@@ -1035,8 +1049,22 @@ htsp_build_dvrentry(htsp_connection_t *htsp, dvr_entry_t *de, const char *method
                   htsmsg_add_str(out, "ratingIcon", str);
               }//END got an imagecache location
             }//END icon not null
-          }
-        }
+
+            //The authority and country are added for Kodi's parentalRatingSource field.
+            //Kodi looks for the authority first and if that is not present, then it uses the country.
+            //There could be no label, but there could be an age.  The authority &
+            //country could still be useful.
+            if (htsp->htsp_version > 40){
+                if(de->de_rating_label->rl_authority){
+                  htsmsg_add_str(out, "ratingAuthority", de->de_rating_label->rl_authority);
+                }//END authority saved not null
+
+                if(de->de_rating_label->rl_country){
+                  htsmsg_add_str(out, "ratingCountry", de->de_rating_label->rl_country);
+                }//END country saved not null
+            }//END ver > 40
+          }//END rating label not null
+        }//END this is a scheduled recording.
         else
         {
           if(de->de_rating_label_saved){
@@ -1051,8 +1079,19 @@ htsp_build_dvrentry(htsp_connection_t *htsp, dvr_entry_t *de, const char *method
                   htsmsg_add_str(out, "ratingIcon", str);
               }//END got an imagecache location
             }//END icon not null
+
+            if (htsp->htsp_version > 40){
+              if(de->de_rating_authority_saved){
+                htsmsg_add_str(out, "ratingAuthority", de->de_rating_authority_saved);
+              }//END authority saved not null
+
+              if(de->de_rating_country_saved){
+                htsmsg_add_str(out, "ratingCountry", de->de_rating_country_saved);
+              }//END country saved not null
+            }//END version > 40
+
           }
-        }
+        }//END this is not a scheduled recording.
       }//END processing rating labels is enabled
     }
 
@@ -1228,6 +1267,7 @@ htsp_build_autorecentry(htsp_connection_t *htsp, dvr_autorec_entry_t *dae, const
   htsmsg_add_u32(out, "dupDetect",   dae->dae_record);
   htsmsg_add_u32(out, "maxCount",    dae->dae_max_count);
   htsmsg_add_u32(out, "broadcastType", dae->dae_btype);
+  htsmsg_add_str2(out, "comment",    dae->dae_comment);
 
   if(dae->dae_title) {
     htsmsg_add_str(out, "title",     dae->dae_title);
@@ -1273,6 +1313,7 @@ htsp_build_timerecentry(htsp_connection_t *htsp, dvr_timerec_entry_t *dte, const
   htsmsg_add_u32(out, "priority",    dte->dte_pri);
   htsmsg_add_s32(out, "start",       dte->dte_start);
   htsmsg_add_s32(out, "stop",        dte->dte_stop);
+  htsmsg_add_str2(out, "comment",    dte->dte_comment);
 
   if(dte->dte_title)
     htsmsg_add_str(out, "title",     dte->dte_title);
@@ -1402,6 +1443,16 @@ htsp_build_event
                 htsmsg_add_str(out, "ratingIcon", str);
             }//END got an imagecache location
           }//END icon not null
+
+          if (htsp->htsp_version > 40){
+              if(e->rating_label->rl_authority){
+                htsmsg_add_str(out, "ratingAuthority", e->rating_label->rl_authority);
+              }//END authority saved not null
+
+              if(e->rating_label->rl_country){
+                htsmsg_add_str(out, "ratingCountry", e->rating_label->rl_country);
+              }//END country saved not null
+          }
         }//END rating label not null
     }//END parental labels enabled.
   }//END HTSP version check
@@ -2143,7 +2194,7 @@ htsp_method_updateDvrEntry(htsp_connection_t *htsp, htsmsg_t *in)
   uint32_t u32;
   dvr_entry_t *de;
   time_t start, stop, start_extra, stop_extra, priority;
-  const char *dvr_config_name, *title, *subtitle, *summary, *desc, *lang;
+  const char *dvr_config_name, *title, *subtitle, *summary, *desc, *lang, *comment;
   channel_t *channel = NULL;
   int enabled, retention, removal, playcount = -1, playposition = -1;
   int age_rating;
@@ -2178,6 +2229,7 @@ htsp_method_updateDvrEntry(htsp_connection_t *htsp, htsmsg_t *in)
   summary     = htsmsg_get_str(in, "summary");
   desc        = htsmsg_get_str(in, "description");
   lang        = htsmsg_get_str(in, "language") ?: htsp->htsp_language;
+  comment     = htsmsg_get_str(in, "comment");
 
   if(!htsmsg_get_u32(in, "playcount", &u32)) {
     if (u32 > INT_MAX)
@@ -2206,7 +2258,7 @@ htsp_method_updateDvrEntry(htsp_connection_t *htsp, htsmsg_t *in)
   de = dvr_entry_update(de, enabled, dvr_config_name, channel, title, subtitle,
                         summary, desc, lang, start, stop, start_extra, stop_extra,
                         priority, retention, removal, playcount, playposition,
-                        age_rating, rating_label);
+                        age_rating, rating_label, comment);
 
   return htsp_success();
 }
